@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>No puedes controlar todo</title>
+<style>
+  @font-face { font-family: U; font-weight: 200; src: url(fonts/Unbounded-ExtraLight.ttf); }
+  @font-face { font-family: U; font-weight: 300; src: url(fonts/Unbounded-Light.ttf); }
+  @font-face { font-family: U; font-weight: 400; src: url(fonts/Unbounded-Regular.ttf); }
+  @font-face { font-family: U; font-weight: 500; src: url(fonts/Unbounded-Medium.ttf); }
+  @font-face { font-family: U; font-weight: 600; src: url(fonts/Unbounded-SemiBold.ttf); }
+  @font-face { font-family: U; font-weight: 700; src: url(fonts/Unbounded-Bold.ttf); }
+  @font-face { font-family: U; font-weight: 800; src: url(fonts/Unbounded-ExtraBold.ttf); }
+  @font-face { font-family: U; font-weight: 900; src: url(fonts/Unbounded-Black.ttf); }
+  html, body { margin: 0; background: #000; }
+  canvas { display: block; width: 1080px; height: 1920px; }
+  body:not(.manual) canvas { width: auto; height: 100vh; margin: 0 auto; }
+</style>
+</head>
+<body>
+<canvas id="c" width="1080" height="1920"></canvas>
+<script>
+// Todo el vídeo es una función pura del tiempo: render(t).
+// Los tiempos son los golpes de la canción (assets/musica.mp3, ~161 BPM), detectados con librosa.
+const W = 1080, H = 1920, DUR = 11.73;
+const ORANGE = '#e7350d', GREY = '#898b8d', WHITE = '#ffffff';
+const LOGO_BG = 'rgb(230,53,13)'; // color exacto del fondo del PNG del logo, para que no se vea el borde
+const BEATS = [0.49, 0.86, 1.25, 1.67, 2.09, 2.51, 2.93, 3.34, 3.76, 4.11, 4.48, 4.83, 5.20, 5.57, 5.99,
+  6.39, 6.73, 7.11, 7.48, 7.85, 8.20, 8.57, 8.92, 9.22, 9.54, 9.87, 10.19, 10.52, 10.84, 11.17];
+
+// Temas: fondo, texto pequeño, texto grande
+const TH = {
+  O: { bg: ORANGE, small: WHITE, big: WHITE },
+  W: { bg: WHITE, small: GREY, big: ORANGE },
+  G: { bg: GREY, small: WHITE, big: WHITE },
+};
+// Un cambio de fondo en cada golpe (partes 1 y 3)
+const BG_SEQ = [
+  [0, 'W'], [0.49, 'O'], [0.86, 'G'], [1.25, 'W'], [1.67, 'O'], [2.09, 'W'], [2.51, 'G'], [2.93, 'O'], [3.34, 'W'],
+  [3.76, 'O'], [4.11, 'W'], [4.48, 'G'], [4.83, 'O'], [5.20, 'W'], [5.57, 'O'], [5.99, 'G'], [6.39, 'W'], [6.73, 'O'],
+  [7.11, 'W'], // parte 2: fondo fijo
+  [8.57, 'O'], [8.92, 'W'], [9.22, 'G'], [9.54, 'O'], [9.87, 'W'],
+];
+
+// Tamaños: s = pequeño, m = medio, b = grande, xl = enorme
+const SZ = { s: [62, 500], m: [96, 600], b: [150, 900], xl: [240, 900] };
+const L = (txt, sz, t) => ({ txt, sz, t });
+// Pantallas de texto apilado. Cada línea aparece en su golpe y se queda hasta el final de la pantalla.
+const SCREENS = [
+  { t0: 0, t1: 2.09, lines: [L('no puedes', 's', 0.16), L('controlar', 'b', 0.49), L('todo', 'xl', 0.86),
+      L('lo que pasa', 's', 1.25), L('en pista', 'b', 1.67)] },
+  { t0: 2.09, t1: 3.76, lines: [L('ni el', 's', 2.09), L('resultado', 'b', 2.09), L('ni el', 's', 2.51), L('error', 'b', 2.51),
+      L('ni a tu', 's', 2.93), L('compañero', 'b', 2.93), L('ni a tu', 's', 3.34), L('rival', 'b', 3.34)] },
+  { t0: 3.76, t1: 5.20, lines: [L('cuanto más', 's', 3.76), L('lo intentas', 'm', 4.11), L('más', 's', 4.48),
+      L('tensión', 'xl', 4.48), L('acumulas', 'b', 4.83)] },
+  { t0: 5.20, t1: 7.11, lines: [L('la clave:', 's', 5.20), L('diferenciar', 'b', 5.57), L('lo que depende', 's', 5.99),
+      L('de ti', 'xl', 6.39)] },
+  { t0: 8.57, t1: 9.22, lines: [L('entrena', 'm', 8.57), L('tu mente', 'xl', 8.92)] },
+  { t0: 9.22, t1: 10.19, lines: [L('y aprende', 's', 9.22), L('dónde poner', 'm', 9.54), L('tu energía', 'xl', 9.87)] },
+];
+
+// Parte 2: lo que sí depende de ti. Misma familia, cambiando peso, caja y espaciado en cada golpe y medio golpe.
+const V = (txt, wt, sp, sz = 130) => ({ txt, wt, sp, sz });
+const MONTAGE = [
+  [7.11, V('actitud', 900, -0.04)], [7.295, V('ACTITUD', 200, 0.04)],
+  [7.48, V('atención', 300, 0.22)], [7.665, V('atención', 800, -0.04)],
+  [7.85, V('DECISIONES', 500, 0)], [8.025, V('decisiones', 900, -0.05)],
+  [8.20, V('respuesta', 200, 0)], [8.385, V('RESPUESTA', 700, 0.12)],
+];
+const LOGO_T = 10.19;
+
+const cv = document.getElementById('c'), cx = cv.getContext('2d');
+const logo = new Image(); logo.src = 'assets/logo_padel_lobb.png';
+
+function font(wt, px, sp) { cx.font = `${wt} ${px}px U`; cx.letterSpacing = `${sp * px}px`; }
+// Tamaño que cabe en el ancho máximo
+function fit(txt, wt, px, sp, maxW = 940) {
+  font(wt, px, sp); const w = cx.measureText(txt).width;
+  return w > maxW ? px * maxW / w : px;
+}
+const ease = x => 1 - Math.pow(1 - Math.min(1, Math.max(0, x)), 3);
+function last(seq, t) { let r = seq[0]; for (const s of seq) if (s[0] <= t + 1e-6) r = s; return r; }
+
+function drawScreen(sc, t, th) {
+  // Maquetación de la pila completa, anclada arriba: lo que ya está no se mueve cuando entra lo nuevo.
+  const items = sc.lines.map(l => {
+    const [px0, wt] = SZ[l.sz], sp = -0.04, px = fit(l.txt, wt, px0, sp);
+    return { ...l, wt, sp, px, h: px * (l.sz === 's' ? 1.3 : 1.0) };
+  });
+  const total = items.reduce((a, b) => a + b.h, 0);
+  let y = H * 0.46 - total / 2;
+  for (const it of items) {
+    const k = (t - it.t) / 0.12;
+    if (k >= 0) {
+      const e = ease(k);
+      font(it.wt, it.px, it.sp);
+      cx.globalAlpha = e;
+      cx.fillStyle = it.sz === 's' ? th.small : th.big;
+      cx.textAlign = 'center'; cx.textBaseline = 'middle';
+      // el espaciado negativo deja hueco a la derecha; se compensa para centrar ópticamente
+      cx.fillText(it.txt, W / 2 - it.sp * it.px / 2, y + it.h / 2 + (1 - e) * 22);
+      cx.globalAlpha = 1;
+    }
+    y += it.h;
+  }
+}
+
+function render(t) {
+  if (t >= LOGO_T) {
+    cx.fillStyle = LOGO_BG; cx.fillRect(0, 0, W, H);
+    const lw = 820, lh = lw * logo.naturalHeight / logo.naturalWidth;
+    cx.globalAlpha = ease((t - LOGO_T) / 0.15);
+    cx.drawImage(logo, (W - lw) / 2, H * 0.46 - lh / 2, lw, lh);
+    cx.globalAlpha = 1;
+    return;
+  }
+  const th = TH[last(BG_SEQ, t)[1]];
+  cx.fillStyle = th.bg; cx.fillRect(0, 0, W, H);
+  if (t >= MONTAGE[0][0] && t < SCREENS[4].t0) {
+    const v = last(MONTAGE, t)[1], px = fit(v.txt, v.wt, v.sz, v.sp, 900);
+    font(v.wt, px, v.sp);
+    cx.fillStyle = ORANGE; cx.textAlign = 'center'; cx.textBaseline = 'middle';
+    cx.fillText(v.txt, W / 2 - v.sp * px / 2, H * 0.46);
+    return;
+  }
+  const sc = SCREENS.find(s => t >= s.t0 && t < s.t1);
+  if (sc) drawScreen(sc, t, th);
+}
+
+if (location.hash === '#manual') document.body.classList.add('manual');
+else {
+  // Vista previa en bucle con la música
+  const au = new Audio('assets/musica.mp3');
+  document.fonts.ready.then(() => {
+    const t0 = performance.now();
+    document.body.onclick = () => au.play();
+    (function loop() { const t = ((performance.now() - t0) / 1000) % DUR; render(t); requestAnimationFrame(loop); })();
+  });
+}
+</script>
+</body>
+</html>
